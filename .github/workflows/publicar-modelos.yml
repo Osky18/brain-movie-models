@@ -1,0 +1,31 @@
+name: Publicar modelos
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Bajar de las fuentes originales
+        run: |
+          set -e
+          mkdir out && cd out
+          FF=https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0
+          curl -fL -o inswapper_128_fp16.onnx $FF/inswapper_128_fp16.onnx
+          curl -fL -o arcface_w600k_r50.onnx  $FF/arcface_w600k_r50.onnx
+          curl -fL -o gpen_bfr_256.onnx       $FF/gpen_bfr_256.onnx
+          curl -fL -o vosk-es.zip https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip
+          curl -fL -o sep.tar.bz2 https://github.com/k2-fsa/sherpa-onnx/releases/download/source-separation-models/sherpa-onnx-spleeter-2stems-fp16.tar.bz2
+          tar xjf sep.tar.bz2
+          mv sherpa-onnx-spleeter-2stems-fp16/vocals.fp16.onnx sep-vocals.onnx
+          mv sherpa-onnx-spleeter-2stems-fp16/accompaniment.fp16.onnx sep-accompaniment.onnx
+          rm -rf sep.tar.bz2 sherpa-onnx-spleeter-2stems-fp16
+          sha256sum * > SHA256SUMS.txt
+          ls -la
+      - name: Publicar la versión modelos-v1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete modelos-v1 -y -R ${{ github.repository }} || true
+          gh release create modelos-v1 out/* -R ${{ github.repository }} \
+            -t "Modelos v1" -n "Copia de los modelos de IA que baja Brain Movie Creator. inswapper, ArcFace y GPEN: solo uso personal, no comercial."
