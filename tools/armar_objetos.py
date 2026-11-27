@@ -7,7 +7,9 @@ Entradas (en el directorio de trabajo):
   kenney/<slug>.zip                     (paquetes de Kenney, CC0)
 Salida: out/catalogo.json y out/<paquete>.zip (cada zip: index.json, LICENCIA.txt y los PNG).
 """
-import json, os, re, sys, unicodedata, zipfile, glob, io
+import json, os, re, sys, unicodedata, zipfile, glob, io, math
+from concurrent.futures import ThreadPoolExecutor
+from PIL import Image, ImageSequence
 
 OUT = "out"
 os.makedirs(OUT, exist_ok=True)
@@ -59,13 +61,17 @@ def write_pack(pid, name, license_txt, items, author, license_name):
     index = []
     seen = set()
     with zipfile.ZipFile(path, "w", zipfile.ZIP_STORED) as z:  # los PNG ya están comprimidos
-        for iid, nm, kw, data in items:
+        for it in items:
+            iid, nm, kw, data = it[:4]
+            anim = it[4] if len(it) > 4 else None
             iid = slug(iid)
             while iid in seen: iid += "-b"
             seen.add(iid)
             fn = iid + ".png"
             z.writestr(fn, data)
-            index.append({"id": iid, "file": fn, "name": nm, "keywords": kw})
+            e = {"id": iid, "file": fn, "name": nm, "keywords": kw}
+            if anim: e["anim"] = anim
+            index.append(e)
         z.writestr("index.json", json.dumps(index, ensure_ascii=False))
         z.writestr("LICENCIA.txt", license_txt)
     size = os.path.getsize(path)
@@ -101,6 +107,157 @@ def fluent(cldr):
     return packs
 
 
+def black_to_alpha(data):
+    """Si la imagen es opaca y gris (efecto dibujado sobre negro), el brillo pasa a ser la transparencia."""
+    try:
+        im = Image.open(io.BytesIO(data)).convert("RGBA")
+    except Exception:
+        return data
+    a = im.getchannel("A")
+    if a.getextrema()[0] < 250:
+        return data  # ya tiene transparencia
+    small = im.resize((32, 32)).convert("RGB")
+    if max(max(abs(r - g), abs(g - b)) for r, g, b in small.getdata()) > 40:
+        return data  # tiene color: no es un efecto sobre negro
+    px = im.load()
+    w, h = im.size
+    out = Image.new("RGBA", (w, h))
+    o = out.load()
+    for y in range(h):
+        for x in range(w):
+            r, g, b, _ = px[x, y]
+            m = max(r, g, b)
+            al = max(0, min(255, int((m - 8) * 255 / 247)))
+            if al == 0 or m == 0:
+                o[x, y] = (0, 0, 0, 0)
+            else:
+                k = 255 / m
+                o[x, y] = (min(255, int(r * k)), min(255, int(g * k)), min(255, int(b * k)), al)
+    buf = io.BytesIO(); out.save(buf, "PNG", optimize=True)
+    return buf.getvalue()
+
+
+def sheet(frames, delays, side, max_frames):
+    """Cuadros -> grilla PNG (paleta con transparencia) + descripción."""
+    if len(frames) > max_frames:
+        step = len(frames) / max_frames
+        f2, d2 = [], []
+        for i in range(max_frames):
+            a, b = int(i * step), max(int(i * step) + 1, int((i + 1) * step))
+            f2.append(frames[a]); d2.append(sum(delays[a:b]))
+        frames, delays = f2, d2
+    w, h = frames[0].size
+    s = min(1.0, side / max(w, h))
+    fw, fh = max(1, round(w * s)), max(1, round(h * s))
+    n = len(frames)
+    cols = math.ceil(math.sqrt(n)); rows = math.ceil(n / cols)
+    out = Image.new("RGBA", (fw * cols, fh * rows), (0, 0, 0, 0))
+    for i, f in enumerate(frames):
+        out.paste(f.convert("RGBA").resize((fw, fh), Image.LANCZOS), ((i % cols) * fw, (i // cols) * fh))
+    q = out.quantize(256, method=Image.FASTOCTREE)
+    buf = io.BytesIO(); q.save(buf, "PNG", optimize=True)
+    return buf.getvalue(), {"cols": cols, "rows": rows, "count": n, "fw": fw, "fh": fh, "delaysMs": [max(20, int(d)) for d in delays]}
+
+
+NOTO_CATS = [
+    ("Smileys and emotions", "anim-caras", "Emojis animados · Caras"),
+    ("People", "anim-personas", "Emojis animados · Personas y gestos"),
+    ("Animals and nature", "anim-animales", "Emojis animados · Animales y naturaleza"),
+    ("Food and drink", "anim-comida", "Emojis animados · Comida"),
+    ("Travel and places", "anim-viajes", "Emojis animados · Viajes y clima"),
+    ("Activities and events", "anim-fiestas", "Emojis animados · Fiestas y actividades"),
+    ("Objects", "anim-objetos", "Emojis animados · Objetos"),
+    ("Symbols", "anim-simbolos", "Emojis animados · Símbolos"),
+]
+NOTO_LICENSE = "Noto Emoji Animation — Google. Licencia CC BY 4.0 (hay que dar crédito: \"Noto Emoji Animation, Google, CC BY 4.0\").\nhttps://googlefonts.github.io/noto-emoji-animation/\n"
+
+
+def noto(cldr):
+    if not os.path.exists("noto-api.json"):
+        print("sin noto-api.json"); return []
+    api = json.load(open("noto-api.json", encoding="utf-8"))
+    icons = api.get("icons", api if isinstance(api, list) else [])
+    print("noto: íconos", len(icons), "ejemplo", icons[0] if icons else None)
+    def fetch(ic):
+        cp = ic["codepoint"]
+        f = os.path.join("noto", cp + ".webp")
+        if not os.path.exists(f):
+            return None
+        try:
+            im = Image.open(f)
+            frames, delays = [], []
+            for fr in ImageSequence.Iterator(im):
+                frames.append(fr.convert("RGBA").copy()); delays.append(fr.info.get("duration", 40) or 40)
+            if len(frames) < 2:
+                return None
+            data, anim = sheet(frames, delays, 128, 30)
+            glyph = "".join(chr(int(x, 16)) for x in cp.split("_"))
+            c = cldr.get(strip_vs(glyph), {})
+            en = ic.get("name", cp).replace("-", " ").replace("_", " ")
+            es = (c.get("tts") or [None])[0] or en
+            kw = list(dict.fromkeys([*c.get("default", []), *[t.strip(":").replace("-", " ") for t in ic.get("tags", [])], en]))
+            cat = (ic.get("categories") or [""])[0]
+            return cat, (cp, es[:1].upper() + es[1:], kw, data, anim)
+        except Exception as e:
+            print("noto error", cp, e); return None
+    with ThreadPoolExecutor(8) as ex:
+        res = [r for r in ex.map(fetch, icons) if r]
+    packs = []
+    for cat, pid, name in NOTO_CATS:
+        items = [it for c, it in res if c.lower().startswith(cat.lower()[:6])]
+        if items:
+            packs.append(write_pack(pid, name, NOTO_LICENSE, items, "Google (Noto Emoji Animation)", "CC BY 4.0"))
+    return packs
+
+
+def explosions():
+    """Explosiones CC0 de OpenGameArt: secuencias de PNG o atlas en grilla."""
+    items = []
+    for zp in sorted(glob.glob("explosiones/*.zip")):
+        with zipfile.ZipFile(zp) as z:
+            pngs = [n for n in z.namelist() if n.lower().endswith(".png") and "__macosx" not in n.lower()]
+            print(zp, len(pngs), "png", pngs[:12])
+            # 1) secuencias: carpetas con varios PNG numerados
+            groups = {}
+            for n in pngs:
+                m = re.match(r"(.*?)(\d+)\.png$", n, re.I)
+                if m:
+                    groups.setdefault(m.group(1), []).append((int(m.group(2)), n))
+            used = False
+            for key, lst in groups.items():
+                if len(lst) < 6:
+                    continue
+                lst.sort()
+                frames = [Image.open(io.BytesIO(z.read(n))).convert("RGBA") for _, n in lst]
+                data, anim = sheet(frames, [40] * len(frames), 256, 48)
+                nm = re.sub(r"[_\-/]+", " ", key).strip() or "explosión"
+                items.append((nm, "Explosión " + str(len(items) + 1), ["explosión", "explosion", "fuego", "bomba", "boom", nm.lower()], data, anim))
+                used = True
+            # 2) atlas: imágenes grandes divisibles en cuadros iguales
+            if not used:
+                for n in pngs:
+                    im = Image.open(io.BytesIO(z.read(n))).convert("RGBA")
+                    w, h = im.size
+                    if w < 1024 or w != h or "half" in n.lower():
+                        continue
+                    cell = next((c for c in (512, 256, 128) if w % c == 0 and w // c >= 4), None)
+                    if not cell:
+                        continue
+                    frames = []
+                    for r in range(h // cell):
+                        for c in range(w // cell):
+                            f = im.crop((c * cell, r * cell, (c + 1) * cell, (r + 1) * cell))
+                            if f.getchannel("A").getextrema()[1] > 8:
+                                frames.append(f)
+                    if len(frames) >= 4:
+                        data, anim = sheet(frames, [40] * len(frames), 256, 48)
+                        items.append((os.path.basename(n), "Explosión " + str(len(items) + 1), ["explosión", "explosion", "fuego", "bomba", "boom"], data, anim))
+    if not items:
+        print("sin explosiones"); return []
+    lic = "Explosiones animadas de OpenGameArt.org — Licencia CC0 (dominio público).\n"
+    return [write_pack("anim-explosiones", "Animados · Explosiones", lic, items, "OpenGameArt (Sinestesia y otros)", "CC0")]
+
+
 def kenney():
     packs = []
     for kslug, pid, name, words in KENNEY:
@@ -125,14 +282,15 @@ def kenney():
                 iid = base if base not in items else f"{folder}-{base}"
                 nm = re.sub(r"[_\-]+", " ", base).strip().capitalize()
                 kw = [w for w in re.split(r"[_\-\s]+", base.lower()) if w and not w.isdigit()] + words.split()
-                items[iid] = (iid, nm, list(dict.fromkeys(kw)), z.read(n))
+                items[iid] = (iid, nm, list(dict.fromkeys(kw)), black_to_alpha(z.read(n)))
         if items:
             packs.append(write_pack(pid, name, KENNEY_LICENSE, list(items.values()), "Kenney", "CC0"))
     return packs
 
 
 if __name__ == "__main__":
-    cat = {"version": 1, "packs": fluent(load_cldr()) + kenney()}
+    cldr = load_cldr()
+    cat = {"version": 1, "packs": fluent(cldr) + kenney() + noto(cldr) + explosions()}
     json.dump(cat, open(os.path.join(OUT, "catalogo.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     print(json.dumps([(p["id"], p["count"]) for p in cat["packs"]]))
     if not cat["packs"]:

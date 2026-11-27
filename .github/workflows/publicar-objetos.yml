@@ -33,8 +33,37 @@ jobs:
           bajar emotes-pack emotes-pack ""
           bajar game-icons game-icons ""
           ls -la kenney
+      - name: Emojis animados (Noto, CC BY 4.0) y explosiones (CC0)
+        run: |
+          set +e
+          curl -fsL -o noto-api.json https://googlefonts.github.io/noto-emoji-animation/data/api.json
+          head -c 600 noto-api.json; echo
+          mkdir -p noto
+          python3 - <<'PY'
+          import json, os, urllib.request
+          from concurrent.futures import ThreadPoolExecutor
+          api = json.load(open("noto-api.json"))
+          icons = api.get("icons", [])
+          def get(ic):
+              cp = ic["codepoint"]; f = f"noto/{cp}.webp"
+              if os.path.exists(f): return
+              try:
+                  urllib.request.urlretrieve(f"https://fonts.gstatic.com/s/e/notoemoji/latest/{cp}/512.webp", f)
+              except Exception as e:
+                  print("falla", cp, e)
+          with ThreadPoolExecutor(16) as ex: list(ex.map(get, icons))
+          print("bajados", len(os.listdir("noto")))
+          PY
+          mkdir -p explosiones
+          for n in 74923; do
+            url=$(curl -fsL -A "Mozilla/5.0" "https://opengameart.org/node/$n" | grep -oE 'https://opengameart\.org/sites/default/files/[^"]+\.zip' | head -1)
+            echo "explosiones $n -> ${url:-(no encontrado)}"
+            [ -n "$url" ] && curl -fL -A "Mozilla/5.0" -o "explosiones/$n.zip" "$url"
+          done
+          ls -la explosiones
+          exit 0
       - name: Armar los paquetes
-        run: python3 tools/armar_objetos.py && ls -la out
+        run: pip install --quiet pillow && python3 tools/armar_objetos.py && ls -la out
       - name: Publicar la versión objetos-v1
         env:
           GH_TOKEN: ${{ github.token }}
