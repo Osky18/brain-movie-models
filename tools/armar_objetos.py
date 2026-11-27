@@ -110,7 +110,7 @@ def kenney():
         items = {}
         with zipfile.ZipFile(zp) as z:
             names = [n for n in z.namelist() if n.lower().endswith(".png")]
-            bad = re.compile(r"(preview|sample|spritesheet|tilesheet|sheet|vector|black)", re.I)
+            bad = re.compile(r"(preview|sample|spritesheet|tilesheet|sheet|black)", re.I)
             # si el paquete trae versión transparente, usar solo esa
             transp = [n for n in names if "transparent" in n.lower()]
             pool = transp or names
