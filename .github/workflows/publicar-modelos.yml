@@ -12,6 +12,8 @@ jobs:
           mkdir out && cd out
           FF=https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0
           curl -fL -o inswapper_128_fp16.onnx $FF/inswapper_128_fp16.onnx
+          curl -fL -o inswapper_128.onnx      $FF/inswapper_128.onnx
+          curl -fL -o scrfd_2.5g.onnx         $FF/scrfd_2.5g.onnx
           curl -fL -o arcface_w600k_r50.onnx  $FF/arcface_w600k_r50.onnx
           curl -fL -o gpen_bfr_256.onnx       $FF/gpen_bfr_256.onnx
           curl -fL -o vosk-es.zip https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip

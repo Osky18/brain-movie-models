@@ -7,6 +7,8 @@ Copia de los modelos de IA que descarga **Brain Movie Creator** (versión `model
 | sep-vocals.onnx, sep-accompaniment.onnx | Quitar voces | Spleeter (sherpa-onnx) | MIT |
 | vosk-es.zip | Subtítulos en español | Vosk small es 0.42 | Apache 2.0 |
 | inswapper_128_fp16.onnx | Rostro Pro | InsightFace (facefusion-assets) | Solo uso no comercial |
+| inswapper_128.onnx | Rostro Pro (modelo completo) | InsightFace (facefusion-assets) | Solo uso no comercial |
+| scrfd_2.5g.onnx | Detector de caras (copia; la app lo trae adentro) | InsightFace (facefusion-assets) | Solo uso no comercial |
 | arcface_w600k_r50.onnx | Rostro Pro | InsightFace (facefusion-assets) | Solo uso no comercial |
 | gpen_bfr_256.onnx | Mejorador de rostro | GPEN (facefusion-assets) | Solo uso no comercial |
 
