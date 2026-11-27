@@ -1,0 +1,37 @@
+name: Publicar objetos
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Emojis 3D (Fluent, MIT) y nombres en español (Unicode CLDR)
+        run: |
+          set -e
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/microsoft/fluentui-emoji fluent
+          cd fluent
+          git sparse-checkout set --no-cone '/assets/*/metadata.json' '/assets/*/3D/*' '/assets/*/Default/3D/*'
+          cd ..
+          C=https://raw.githubusercontent.com/unicode-org/cldr-json/main/cldr-json
+          curl -fL -o cldr-es.json $C/cldr-annotations-full/annotations/es/annotations.json
+          curl -fL -o cldr-es-derived.json $C/cldr-annotations-derived-full/annotationsDerived/es/annotations.json
+      - name: Paquetes de Kenney (CC0)
+        run: |
+          mkdir -p kenney
+          for s in particle-pack emotes-pack game-icons; do
+            url=$(curl -fsL "https://kenney.nl/assets/$s" | grep -oE 'https://kenney\.nl/media/pages/assets/[^"]+\.zip' | head -1 || true)
+            echo "$s -> ${url:-(no encontrado)}"
+            [ -n "$url" ] && curl -fL -o "kenney/$s.zip" "$url" || echo "::warning::No se pudo bajar $s"
+          done
+          ls -la kenney
+      - name: Armar los paquetes
+        run: python3 tools/armar_objetos.py && ls -la out
+      - name: Publicar la versión objetos-v1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete objetos-v1 -y -R ${{ github.repository }} || true
+          gh release create objetos-v1 out/* -R ${{ github.repository }} \
+            -t "Objetos v1" -n "Objetos PNG para Brain Movie Creator. Emojis 3D: Fluent Emoji de Microsoft (MIT). Kenney: CC0. Nombres en español: Unicode CLDR."
