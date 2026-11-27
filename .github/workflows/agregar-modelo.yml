@@ -1,0 +1,27 @@
+name: Agregar modelo
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Dirección de descarga"
+        required: true
+      nombre:
+        description: "Nombre del archivo en la versión modelos-v1"
+        required: true
+permissions:
+  contents: write
+jobs:
+  agregar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Bajar y subir a modelos-v1
+        env:
+          GH_TOKEN: ${{ github.token }}
+          URL: ${{ inputs.url }}
+          NOMBRE: ${{ inputs.nombre }}
+        run: |
+          set -e
+          case "$NOMBRE" in *[!A-Za-z0-9._-]*) echo "nombre inválido"; exit 1;; esac
+          curl -fL -o "$NOMBRE" "$URL"
+          ls -la "$NOMBRE"; sha256sum "$NOMBRE"
+          gh release upload modelos-v1 "$NOMBRE" --clobber -R ${{ github.repository }}
