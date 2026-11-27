@@ -20,15 +20,18 @@ jobs:
       - name: Paquetes de Kenney (CC0)
         run: |
           mkdir -p kenney
-          for s in particle-pack emotes-pack game-icons; do
-            curl -fsL -A "Mozilla/5.0" "https://kenney.nl/assets/$s" -o page.html || true
-            echo "== $s: $(wc -c < page.html) bytes"
-            grep -oiE '(href|data-[a-z-]+)="[^"]*(\.zip|download)[^"]*"' page.html | head -8 || true
-            url=$(grep -oiE '[^"'"'"' ]+\.zip' page.html | head -1 || true)
-            case "$url" in /*) url="https://kenney.nl$url";; esac
-            echo "$s -> ${url:-(no encontrado)}"
-            [ -n "$url" ] && curl -fL -A "Mozilla/5.0" -o "kenney/$s.zip" "$url" || echo "::warning::No se pudo bajar $s"
-          done
+          # Kenney (CC0) desde OpenGameArt; las partículas también tienen copia en GitHub
+          bajar() {  # $1 = nombre, $2 = página de OpenGameArt, $3 = respaldo
+            url=$(curl -fsL -A "Mozilla/5.0" "https://opengameart.org/content/$2" | grep -oE 'https://opengameart\.org/sites/default/files/[^"]+\.zip' | head -1 || true)
+            echo "$1 -> ${url:-(no encontrado)}"
+            if [ -n "$url" ] && curl -fL -A "Mozilla/5.0" -o "kenney/$1.zip" "$url"; then return; fi
+            if [ -n "$3" ] && curl -fL -o "kenney/$1.zip" "$3"; then echo "$1 -> respaldo"; return; fi
+            echo "::warning::No se pudo bajar $1"
+          }
+          bajar particle-pack particle-pack-80-sprites https://codeload.github.com/Calinou/kenney-particle-pack/zip/refs/heads/master
+          bajar smoke-particles smoke-particle-assets ""
+          bajar emotes-pack emotes-pack ""
+          bajar game-icons game-icons ""
           ls -la kenney
       - name: Armar los paquetes
         run: python3 tools/armar_objetos.py && ls -la out

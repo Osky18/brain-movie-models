@@ -27,6 +27,7 @@ FLUENT_LICENSE = "Fluent Emoji — Copyright (c) Microsoft Corporation. Licencia
 KENNEY_LICENSE = "Kenney (www.kenney.nl) — Licencia CC0 1.0 (dominio público). Mención no obligatoria.\n"
 KENNEY = [
     ("particle-pack", "kenney-particulas", "Partículas y efectos (chispas, humo, fuego)", "partícula efecto chispa humo fuego luz estrella"),
+    ("smoke-particles", "kenney-humo", "Humo y explosiones", "humo explosión nube polvo efecto"),
     ("emotes-pack", "kenney-emotes", "Globos y emotes", "globo emote diálogo pensamiento emoción"),
     ("game-icons", "kenney-iconos", "Íconos", "ícono botón símbolo flecha"),
 ]
@@ -117,6 +118,8 @@ def kenney():
                 if bad.search(n):
                     continue
                 base = os.path.splitext(os.path.basename(n))[0]
+                if base.lower() in ("icon", "preview", "thumbnail"):
+                    continue
                 # carpeta inmediata como variante (estilos del mismo objeto)
                 folder = os.path.basename(os.path.dirname(n))
                 iid = base if base not in items else f"{folder}-{base}"
