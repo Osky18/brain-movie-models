@@ -21,9 +21,13 @@ jobs:
         run: |
           mkdir -p kenney
           for s in particle-pack emotes-pack game-icons; do
-            url=$(curl -fsL "https://kenney.nl/assets/$s" | grep -oE 'https://kenney\.nl/media/pages/assets/[^"]+\.zip' | head -1 || true)
+            curl -fsL -A "Mozilla/5.0" "https://kenney.nl/assets/$s" -o page.html || true
+            echo "== $s: $(wc -c < page.html) bytes"
+            grep -oiE '(href|data-[a-z-]+)="[^"]*(\.zip|download)[^"]*"' page.html | head -8 || true
+            url=$(grep -oiE '[^"'"'"' ]+\.zip' page.html | head -1 || true)
+            case "$url" in /*) url="https://kenney.nl$url";; esac
             echo "$s -> ${url:-(no encontrado)}"
-            [ -n "$url" ] && curl -fL -o "kenney/$s.zip" "$url" || echo "::warning::No se pudo bajar $s"
+            [ -n "$url" ] && curl -fL -A "Mozilla/5.0" -o "kenney/$s.zip" "$url" || echo "::warning::No se pudo bajar $s"
           done
           ls -la kenney
       - name: Armar los paquetes
